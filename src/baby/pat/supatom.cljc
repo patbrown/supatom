@@ -18,8 +18,8 @@
   (commit [this])
   (snapshot [this]))
 
-(defmulti commit-with #(-> % :connection :variant))
-(defmulti snapshot-with #(-> % :connection :variant))
+(defmulti commit-with #(-> % :variant))
+(defmulti snapshot-with #(-> % :variant))
 (defmethod commit-with :default [this] (identity this))
 (defmethod snapshot-with :default [this] (identity this))
 
@@ -262,7 +262,6 @@
 
       :cljs [Object
              (equiv [this other] (-equiv this other))
-
              IDeref
              (-deref [this]
                      (if (nil? trigger-with)
@@ -302,7 +301,6 @@
              (-swap! [this f x] (reset! this (f (deref source-atom) x)))
              (-swap! [this f x y] (reset! this (f (deref source-atom) x y)))]))
 
-;; This is something I will forever be drawn to and annoyed by like a girl I know.   
 ;; Just kept it dumb AF.   
 #?(:clj (defmethod print-method Supatom [x w]
           ((get-method print-method clojure.lang.IRecord) x w)))
@@ -316,12 +314,6 @@
   (instance? Supatom thing))
 
 (s/def ::vt/supatom #(supatom? %))
-
-(defn-spec *supatom ::vt/supatom
-  "Wrapper for creating supatom's from maps."
-  [& configs ::vt/coll-of-maps]
-  (map->Supatom (apply merge configs)))
-
 
 #?(:clj (defmethod print-method Supalink [supa w]
           (.write w "#")
@@ -342,16 +334,17 @@
                        :clj (ReentrantLock.)
                        :cljs (Object.)))
 
-(defn-spec supatom ::vt/any
+(defn-spec *supatom ::vt/fn
   "Takes a config map and returns a function that takes another config map and makes a supatom."
   ([overlay-config ::vt/map]
    (fn [config]
-     (let [{:keys [backing write-with source-atom] :as new-config} (merge supatom-default-base
-                                                                  {:source-atom (atom nil)
-                                                                   :lock (fresh-lock)
-                                                                   :watches-atom (atom {})}
-                                                                  overlay-config
-                                                                  config)
+     (let [{:keys [backing write-with source-atom] :as new-config}
+           (merge supatom-default-base
+                  {:source-atom (atom nil)
+                   :lock (fresh-lock)
+                   :watches-atom (atom {})}
+                  overlay-config
+                  config)
            _ (when-let [snap (snapshot-with new-config)]
                (reset! source-atom (write-with snap)))
            supatom (map->Supatom new-config)]
@@ -362,8 +355,8 @@
 
 (defn-spec supatom-> ::vt/supatom
   "Simplest supatom creation function."
-  ([] (supatom {:id (vt/qid)}))
-  ([overlay-config ::vt/map] ((supatom overlay-config) {})))
+  ([] (*supatom {:id (vt/qid)}))
+  ([overlay-config ::vt/map] ((*supatom overlay-config) {})))
 
 (defn-spec supalink? ::vt/?
   "Is a thing a supalink?"
@@ -378,8 +371,8 @@
   (Supalink. source-atom meta validate-with watches-atom get-with set-with trigger-with id))
 
 (def supalink-defaults
-  {:get-with (fn [before after] after)
-   :set-with (fn [before after] after)
+  {:get-with (fn [_before after] after)
+   :set-with (fn [_before after] after)
    :validate-with any?
    :trigger-with deref
    :meta {:supalink? true}
@@ -393,7 +386,7 @@
   ([source-atom ::vt/atom get-with ::vt/fn]
    (supalink {:source-atom source-atom :get-with get-with}))
   ([source-atom ::vt/atom get-with ::vt/fn set-with ::vt/fn]
-   (supatom {:source-atom source-atom :get-with get-with :set-with set-with})))
+   (supalink {:source-atom source-atom :get-with get-with :set-with set-with})))
 
 (def link-> "Alias to create simple supalink functions." supalink)
 
